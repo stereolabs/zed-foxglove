@@ -4,6 +4,7 @@ import logging
 import struct
 import time
 from math import cos, sin
+import argparse
 
 import foxglove
 import numpy as np
@@ -45,6 +46,11 @@ plot_schema = {
         "y": {"type": "number"},
     },
 }
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--mcap", type=str, default="output.mcap", help="Output MCAP file name")
+parser.add_argument("--ws", action="store_true", help="Enable WebSocket server")
+args = parser.parse_args()
 
 zed_list = []
 left_list = []
@@ -194,11 +200,18 @@ def main() -> None:
 
     listener = ExampleListener()
 
-    server = foxglove.start_server(
-        server_listener=listener,
-        capabilities=[Capability.ClientPublish],
-        supported_encodings=["json"],
-    )
+
+    server = None
+    if args.ws:
+        server = foxglove.start_server(
+            server_listener=listener,
+            capabilities=[Capability.ClientPublish],
+            supported_encodings=["json"],
+        )
+
+    mcap = None
+    if args.mcap:
+        mcap = foxglove.open_mcap(args.mcap, allow_overwrite=True)
 
     print("Running...")
     init = sl.InitParameters()
@@ -247,7 +260,10 @@ def main() -> None:
         global stop_signal
         stop_signal=True
         time.sleep(0.5)
-        server.stop()
+        if server is not None:
+            server.stop()
+        if mcap is not None:
+            mcap.close()
 
     #Stop the threads
     stop_signal = True
