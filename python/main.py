@@ -14,7 +14,7 @@ import threading
 import time
 import signal
 
-from foxglove.channels import RawImageChannel
+from foxglove.channels import RawImageChannel, CompressedImageChannel
 from foxglove.schemas import (
     PackedElementField,
     PackedElementFieldNumericType,
@@ -22,6 +22,7 @@ from foxglove.schemas import (
     Pose,
     Quaternion,
     RawImage,
+    CompressedImage,
     Vector3,
 )
 from foxglove.websocket import (
@@ -65,8 +66,8 @@ def grab_run(index):
     global left_list
     global depth_list
 
-    img_chan = RawImageChannel(topic=f"/image_{index}")
-    depth_chan = RawImageChannel(topic=f"/depth_{index}")
+    img_chan = CompressedImageChannel(topic=f"/image_{index}")
+    depth_chan = CompressedImageChannel(topic=f"/depth_{index}")
 
     runtime = sl.RuntimeParameters()
     while not stop_signal:
@@ -79,23 +80,27 @@ def grab_run(index):
             zed_list[index].retrieve_image(left_list[index], sl.VIEW.LEFT)
             zed_list[index].retrieve_image(depth_list[index], sl.VIEW.DEPTH)
 
+            # Convert images to JPEG format using OpenCV
+            left_img = left_list[index].get_data()
+            depth_img = depth_list[index].get_data()
+            
+            # Encode left image as JPEG
+            _, left_jpeg = cv2.imencode('.jpg', left_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            
+            # For depth image, convert to 8-bit grayscale first, then encode as JPEG
+            _, depth_jpeg = cv2.imencode('.jpg', depth_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            
             # Or use typed channels directly to get better type checking
             img_chan.log(
-                RawImage(
-                    data=left_list[index].get_data().tobytes(),
-                    width=left_list[index].get_width(),
-                    height=left_list[index].get_height(),
-                    step=left_list[index].get_step_bytes(),
-                    encoding="bgra8",
+                CompressedImage(
+                    data=left_jpeg.tobytes(),
+                    format="jpeg",
                 ),
             )
             depth_chan.log(
-                RawImage(
-                    data=depth_list[index].get_data().tobytes(),
-                    width=depth_list[index].get_width(),
-                    height=depth_list[index].get_height(),
-                    step=depth_list[index].get_step_bytes(),
-                    encoding="bgra8",  # 32-bit float for depth
+                CompressedImage(
+                    data=depth_jpeg.tobytes(),
+                    format="jpeg",
                 ),
             )
             timestamp_list[index] = zed_list[index].get_timestamp(sl.TIME_REFERENCE.CURRENT).data_ns
