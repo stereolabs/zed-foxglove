@@ -202,8 +202,8 @@ def main() -> None:
 
     print("Running...")
     init = sl.InitParameters()
-    init.camera_resolution = sl.RESOLUTION.HD720
-    init.camera_fps = 60  # The framerate is lowered to avoid any USB3 bandwidth issues
+    init.camera_resolution = sl.RESOLUTION.AUTO
+    init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
 
     #List and open cameras
     name_list = []
