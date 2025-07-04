@@ -1,15 +1,16 @@
 cmake_minimum_required(VERSION 3.14)
-project(quickstart LANGUAGES CXX)
+project(zed_foxglove LANGUAGES CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Use LLVM's libc++ instead of GCC's libstdc++
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-stdlib=libc++)
-    add_link_options(-stdlib=libc++)
-endif()
+# Find OpenCV
+find_package(OpenCV REQUIRED)
+
+# Find ZED SDK
+find_package(ZED 5 REQUIRED)
+find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
 
 # Fetch Foxglove SDK
 include(FetchContent)
@@ -28,6 +29,13 @@ add_executable(quickstart src/main.cpp)
 target_include_directories(quickstart PRIVATE ${foxglove_SOURCE_DIR}/include)
 target_include_directories(quickstart PRIVATE ${foxglove_SOURCE_DIR}/include/foxglove)
 
+# Include OpenCV directories
+target_include_directories(quickstart PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+# Include ZED SDK directories
+target_include_directories(quickstart PRIVATE ${ZED_INCLUDE_DIRS})
+target_include_directories(quickstart PRIVATE ${CUDA_INCLUDE_DIRS})
+
 # Find all Foxglove SDK source files
 file(GLOB FOXGLOVE_SOURCES CONFIGURE_DEPENDS
     "${foxglove_SOURCE_DIR}/src/*.cpp"
@@ -39,3 +47,10 @@ target_sources(quickstart PRIVATE ${FOXGLOVE_SOURCES})
 
 # Link against libfoxglove.a
 target_link_libraries(quickstart PRIVATE ${foxglove_SOURCE_DIR}/lib/libfoxglove.a)
+
+# Link OpenCV libraries
+target_link_libraries(quickstart PRIVATE ${OpenCV_LIBS})
+
+# Link ZED SDK libraries
+target_link_libraries(quickstart PRIVATE ${ZED_LIBRARIES})
+target_link_libraries(quickstart PRIVATE ${CUDA_LIBRARIES})
