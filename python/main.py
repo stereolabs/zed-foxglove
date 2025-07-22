@@ -7,7 +7,6 @@ from math import cos, sin
 import argparse
 
 import foxglove
-import numpy as np
 
 import pyzed.sl as sl
 import cv2
@@ -15,23 +14,19 @@ import threading
 import time
 import signal
 
-from foxglove.channels import RawImageChannel, CompressedImageChannel
+from foxglove.channels import CompressedImageChannel, PointCloudChannel
 from foxglove.schemas import (
     PackedElementField,
     PackedElementFieldNumericType,
     PointCloud,
     Pose,
     Quaternion,
-    RawImage,
     CompressedImage,
     Vector3,
+    PointCloud,
 )
 from foxglove.websocket import (
     Capability,
-    ChannelView,
-    Client,
-    ClientChannel,
-    ServerListener,
 )
 
 any_schema = {
@@ -48,14 +43,14 @@ plot_schema = {
 }
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--mcap", type=str, default="output.mcap", help="Output MCAP file name")
+parser.add_argument("--mcap", type=str, default="", help="Output MCAP file name")
 parser.add_argument("--ws", action="store_true", help="Enable WebSocket server")
 args = parser.parse_args()
 
 zed_list = []
 left_list = []
 depth_list = []
-timestamp_list = []
+pt_cloud_list = []
 thread_list = []
 stop_signal = False
 
@@ -68,34 +63,31 @@ def signal_handler(signal, frame):
 def grab_run(index):
     global stop_signal
     global zed_list
-    global timestamp_list
     global left_list
     global depth_list
 
-    img_chan = CompressedImageChannel(topic=f"/image_{index}")
-    depth_chan = CompressedImageChannel(topic=f"/depth_{index}")
+    img_chan = CompressedImageChannel(topic=f"image_{index}")
+    depth_chan = CompressedImageChannel(topic=f"depth_{index}")
+    pt_cloud_chan = PointCloudChannel(topic=f"point_cloud_{index}")
 
     runtime = sl.RuntimeParameters()
     while not stop_signal:
         err = zed_list[index].grab(runtime)
         if err == sl.ERROR_CODE.SUCCESS:
-            # If you want to add more computation here and to keep maximum performance with multiple cameras:
-            # 1. Minimize Python operations in the loop to avoid python to block the GIL
-            # 2. Pre-allocate objects and arrays to reduce memory allocations
-            # 3. Rely on the pyzed library which is optimized for performance
+            # Log the images
             zed_list[index].retrieve_image(left_list[index], sl.VIEW.LEFT)
             zed_list[index].retrieve_image(depth_list[index], sl.VIEW.DEPTH)
 
             # Convert images to JPEG format using OpenCV
             left_img = left_list[index].get_data()
             depth_img = depth_list[index].get_data()
-            
+
             # Encode left image as JPEG
             _, left_jpeg = cv2.imencode('.jpg', left_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            
+
             # For depth image, convert to 8-bit grayscale first, then encode as JPEG
             _, depth_jpeg = cv2.imencode('.jpg', depth_img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            
+
             # Or use typed channels directly to get better type checking
             img_chan.log(
                 CompressedImage(
@@ -109,102 +101,36 @@ def grab_run(index):
                     format="jpeg",
                 ),
             )
-            timestamp_list[index] = zed_list[index].get_timestamp(sl.TIME_REFERENCE.CURRENT).data_ns
 
+            # Log point cloud information
+            zed_list[index].retrieve_measure(
+                pt_cloud_list[index],
+                sl.MEASURE.XYZRGBA,
+            )
+
+            # Convert the point cloud to a format suitable for Foxglove
+            point_cloud = make_point_cloud(index, pt_cloud_list[index])
+
+            pt_cloud_chan.log(point_cloud)
 
     zed_list[index].close()
-
-
-class ExampleListener(ServerListener):
-    def __init__(self) -> None:
-        # Map client id -> set of subscribed topics
-        self.subscribers: dict[int, set[str]] = {}
-
-    def has_subscribers(self) -> bool:
-        return len(self.subscribers) > 0
-
-    def on_subscribe(
-        self,
-        client: Client,
-        channel: ChannelView,
-    ) -> None:
-        """
-        Called by the server when a client subscribes to a channel.
-        We'll use this and on_unsubscribe to simply track if we have any subscribers at all.
-        """
-        logging.info(f"Client {client} subscribed to channel {channel.topic}")
-        self.subscribers.setdefault(client.id, set()).add(channel.topic)
-
-    def on_unsubscribe(
-        self,
-        client: Client,
-        channel: ChannelView,
-    ) -> None:
-        """
-        Called by the server when a client unsubscribes from a channel.
-        """
-        logging.info(f"Client {client} unsubscribed from channel {channel.topic}")
-        self.subscribers[client.id].remove(channel.topic)
-        if not self.subscribers[client.id]:
-            del self.subscribers[client.id]
-
-    def on_client_advertise(
-        self,
-        client: Client,
-        channel: ClientChannel,
-    ) -> None:
-        """
-        Called when a client advertises a new channel.
-        """
-        logging.info(f"Client {client.id} advertised channel: {channel.id}")
-        logging.info(f"  Topic: {channel.topic}")
-        logging.info(f"  Encoding: {channel.encoding}")
-        logging.info(f"  Schema name: {channel.schema_name}")
-        logging.info(f"  Schema encoding: {channel.schema_encoding}")
-        logging.info(f"  Schema: {channel.schema!r}")
-
-    def on_message_data(
-        self,
-        client: Client,
-        client_channel_id: int,
-        data: bytes,
-    ) -> None:
-        """
-        This handler demonstrates receiving messages from the client.
-        You can send messages from Foxglove app in the publish panel:
-        https://docs.foxglove.dev/docs/visualization/panels/publish
-        """
-        logging.info(f"Message from client {client.id} on channel {client_channel_id}")
-        logging.info(f"Data: {data!r}")
-
-    def on_client_unadvertise(
-        self,
-        client: Client,
-        client_channel_id: int,
-    ) -> None:
-        """
-        Called when a client unadvertises a new channel.
-        """
-        logging.info(f"Client {client.id} unadvertised channel: {client_channel_id}")
 
 def main() -> None:
     global stop_signal
     global zed_list
     global left_list
     global depth_list
-    global timestamp_list
     global thread_list
     signal.signal(signal.SIGINT, signal_handler)
 
     foxglove.set_log_level(logging.DEBUG)
 
-    listener = ExampleListener()
-
+    # listener = ExampleListener()
 
     server = None
     if args.ws:
         server = foxglove.start_server(
-            server_listener=listener,
+            # server_listener=listener,
             capabilities=[Capability.ClientPublish],
             supported_encodings=["json"],
         )
@@ -217,10 +143,11 @@ def main() -> None:
     init = sl.InitParameters()
     init.camera_resolution = sl.RESOLUTION.AUTO
     init.camera_fps = 30  # The framerate is lowered to avoid any USB3 bandwidth issues
+    init.coordinate_units = sl.UNIT.METER
+    init.coordinate_system = sl.COORDINATE_SYSTEM.RIGHT_HANDED_Z_UP
 
-    #List and open cameras
+    # List and open cameras
     name_list = []
-    last_ts_list = []
     cameras = sl.Camera.get_device_list()
     index = 0
     for cam in cameras:
@@ -228,37 +155,30 @@ def main() -> None:
         name_list.append("ZED {}".format(cam.serial_number))
         print("Opening {}".format(name_list[index]))
         zed_list.append(sl.Camera())
-        left_list.append(sl.Mat())
-        depth_list.append(sl.Mat())
-        timestamp_list.append(0)
-        last_ts_list.append(0)
+        left_list.append(sl.Mat(width=0, height=0, mat_type=sl.MAT_TYPE.U8_C4))
+        depth_list.append(sl.Mat(width=0, height=0, mat_type=sl.MAT_TYPE.U8_C4))
+        pt_cloud_list.append(sl.Mat(width=0, height=0, mat_type=sl.MAT_TYPE.F32_C4))
         status = zed_list[index].open(init)
         if status != sl.ERROR_CODE.SUCCESS:
             print(repr(status))
             zed_list[index].close()
-        index = index +1
+        index = index + 1
 
-    #Start camera threads
+    # Start camera threads
     for index in range(0, len(zed_list)):
         if zed_list[index].is_opened():
             thread_list.append(threading.Thread(target=grab_run, args=(index,)))
             thread_list[index].start()
-    
-    #Display camera images
+
+    # Display camera images
     try:
         key = ''
         while key != 113:  # for 'q' key
-            time.sleep(0.05)
-
-            while not listener.has_subscribers():
-                time.sleep(1)
-                continue
-
             key = cv2.waitKey(10)
 
     except KeyboardInterrupt:
         global stop_signal
-        stop_signal=True
+        stop_signal = True
         time.sleep(0.5)
         if server is not None:
             server.stop()
@@ -270,30 +190,16 @@ def main() -> None:
     for index in range(0, len(thread_list)):
         thread_list[index].join()
 
-    cv2.destroyAllWindows()
 
-
-def make_point_cloud() -> PointCloud:
+def make_point_cloud(zed_id: int, point_cloud: sl.Mat) -> PointCloud:
     """
     https://foxglove.dev/blog/visualizing-point-clouds-with-custom-colors
     """
-    point_struct = struct.Struct("<fffBBBB")
     f32 = PackedElementFieldNumericType.Float32
-    u32 = PackedElementFieldNumericType.Uint32
-
-    t = time.time()
-    points = [(x + cos(t + y / 5), y, 0) for x in range(20) for y in range(20)]
-    buffer = bytearray(point_struct.size * len(points))
-    for i, point in enumerate(points):
-        x, y, z = point
-        r = int(255 * (0.5 + 0.5 * x / 20))
-        g = int(255 * y / 20)
-        b = int(255 * (0.5 + 0.5 * sin(t)))
-        a = int(255 * (0.5 + 0.5 * ((x / 20) * (y / 20))))
-        point_struct.pack_into(buffer, i * point_struct.size, x, y, z, b, g, r, a)
+    u8 = PackedElementFieldNumericType.Uint8
 
     return PointCloud(
-        frame_id="points",
+        frame_id=f"zed_{zed_id}",
         pose=Pose(
             position=Vector3(x=0, y=0, z=0),
             orientation=Quaternion(x=0, y=0, z=0, w=1),
@@ -303,35 +209,13 @@ def make_point_cloud() -> PointCloud:
             PackedElementField(name="x", offset=0, type=f32),
             PackedElementField(name="y", offset=4, type=f32),
             PackedElementField(name="z", offset=8, type=f32),
-            PackedElementField(name="rgba", offset=12, type=u32),
+            PackedElementField(name="red", offset=12, type=u8),
+            PackedElementField(name="green", offset=13, type=u8),
+            PackedElementField(name="blue", offset=14, type=u8),
+            PackedElementField(name="alpha", offset=15, type=u8),
         ],
-        data=bytes(buffer),
+        data=bytes(point_cloud.get_data()),
     )
-
-
-def euler_to_quaternion(roll: float, pitch: float, yaw: float) -> Quaternion:
-    """Convert Euler angles to a rotation quaternion
-
-    See e.g. https://danceswithcode.net/engineeringnotes/quaternions/quaternions.html
-
-    :param roll: rotation around X axis (radians)
-    :param pitch: rotation around Y axis (radians)
-    :param yaw: rotation around Z axis (radians)
-    :returns: a protobuf Quaternion
-    """
-    roll, pitch, yaw = roll * 0.5, pitch * 0.5, yaw * 0.5
-
-    sin_r, cos_r = sin(roll), cos(roll)
-    sin_p, cos_p = sin(pitch), cos(pitch)
-    sin_y, cos_y = sin(yaw), cos(yaw)
-
-    w = cos_r * cos_p * cos_y + sin_r * sin_p * sin_y
-    x = sin_r * cos_p * cos_y - cos_r * sin_p * sin_y
-    y = cos_r * sin_p * cos_y + sin_r * cos_p * sin_y
-    z = cos_r * cos_p * sin_y - sin_r * sin_p * cos_y
-
-    return Quaternion(x=x, y=y, z=z, w=w)
-
 
 if __name__ == "__main__":
     main()
