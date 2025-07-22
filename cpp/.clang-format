@@ -1,0 +1,117 @@
+#
+# .clang-format
+# zed-sdk
+#
+# © 2025 Stereolabs Inc. All Rights Reserved.
+#
+
+#
+# See the full list of options at: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+#
+
+# Base style
+BasedOnStyle: WebKit
+
+# Width limit
+ColumnLimit: 140
+
+# Indentation
+ContinuationIndentWidth: 4
+UseTab: Never
+NamespaceIndentation: All
+FixNamespaceComments: true
+IndentCaseLabels: true
+IndentCaseBlocks: true
+IndentPPDirectives: BeforeHash
+
+# Sorting
+SortIncludes: true
+SortUsingDeclarations: true
+
+# Arguments, parameters, and constructors
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# Breaks
+BreakBeforeBraces: Custom
+AlwaysBreakTemplateDeclarations: true
+
+# Brace wrapping
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+# Alignment
+PointerAlignment: Left
+AlignAfterOpenBracket: BlockIndent
+AlignArrayOfStructures: Left
+AlignEscapedNewlines: Left
+AlignOperands: DontAlign
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+AlignConsecutiveAssignments:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  AlignFunctionPointers: false
+  PadOperators: true
+AlignConsecutiveBitFields:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  AlignFunctionPointers: false
+  PadOperators: true
+AlignConsecutiveDeclarations:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  AlignFunctionPointers: false
+  PadOperators: true
+AlignConsecutiveMacros:
+  Enabled: false
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  AlignFunctionPointers: false
+  PadOperators: true
+
+# Single lines
+AllowShortBlocksOnASingleLine: Empty
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLambdasOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+# Spaces
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpaceBeforeCpp11BracedList: true
+
+# Container styles
+Cpp11BracedListStyle: true
+
+# Newlines
+InsertNewlineAtEOF: true

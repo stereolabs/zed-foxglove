@@ -1,5 +1,9 @@
 
 ### C++ ###
+
+.cache/
+build/
+
 # Prerequisites
 *.d
 
@@ -51,3 +55,16 @@
 # Ignore all local history of files
 .history
 .ionide
+
+### Python ###
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Wheel files
+*.whl
+
+### MCAP ###
+# Ignore MCAP files
+*.mcap

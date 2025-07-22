@@ -5,6 +5,8 @@ project(zed_foxglove LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Find OpenCV
 find_package(OpenCV REQUIRED)
 
@@ -17,24 +19,24 @@ include(FetchContent)
 FetchContent_Declare(
     foxglove
     # See available releases and builds here: https://github.com/foxglove/foxglove-sdk/releases
-    URL https://github.com/foxglove/foxglove-sdk/releases/download/sdk%2Fv0.9.0/foxglove-v0.9.0-cpp-x86_64-unknown-linux-gnu.zip
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    URL https://github.com/foxglove/foxglove-sdk/releases/download/sdk%2Fv0.9.0/foxglove-v0.9.0-cpp-x86_64-unknown-linux-gnu.zip
 )
 FetchContent_MakeAvailable(foxglove)
 
 # Add executable
-add_executable(quickstart src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp)
 
 # Add include directory for Foxglove SDK
-target_include_directories(quickstart PRIVATE ${foxglove_SOURCE_DIR}/include)
-target_include_directories(quickstart PRIVATE ${foxglove_SOURCE_DIR}/include/foxglove)
+target_include_directories(${PROJECT_NAME} PRIVATE ${foxglove_SOURCE_DIR}/include)
+target_include_directories(${PROJECT_NAME} PRIVATE ${foxglove_SOURCE_DIR}/include/foxglove)
 
 # Include OpenCV directories
-target_include_directories(quickstart PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PRIVATE ${OpenCV_INCLUDE_DIRS})
 
 # Include ZED SDK directories
-target_include_directories(quickstart PRIVATE ${ZED_INCLUDE_DIRS})
-target_include_directories(quickstart PRIVATE ${CUDA_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PRIVATE ${ZED_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PRIVATE ${CUDA_INCLUDE_DIRS})
 
 # Find all Foxglove SDK source files
 file(GLOB FOXGLOVE_SOURCES CONFIGURE_DEPENDS
@@ -43,14 +45,14 @@ file(GLOB FOXGLOVE_SOURCES CONFIGURE_DEPENDS
 )
 
 # Add Foxglove SDK source files
-target_sources(quickstart PRIVATE ${FOXGLOVE_SOURCES})
+target_sources(${PROJECT_NAME} PRIVATE ${FOXGLOVE_SOURCES})
 
 # Link against libfoxglove.a
-target_link_libraries(quickstart PRIVATE ${foxglove_SOURCE_DIR}/lib/libfoxglove.a)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${foxglove_SOURCE_DIR}/lib/libfoxglove.a)
 
 # Link OpenCV libraries
-target_link_libraries(quickstart PRIVATE ${OpenCV_LIBS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${OpenCV_LIBS})
 
 # Link ZED SDK libraries
-target_link_libraries(quickstart PRIVATE ${ZED_LIBRARIES})
-target_link_libraries(quickstart PRIVATE ${CUDA_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${ZED_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${CUDA_LIBRARIES})

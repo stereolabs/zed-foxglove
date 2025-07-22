@@ -1,18 +1,18 @@
-#include <iostream>
-#include <vector>
-#include <thread>
 #include <atomic>
-#include <signal.h>
 #include <chrono>
-#include <memory>
-#include <opencv2/opencv.hpp>
-#include <sl/Camera.hpp>
-#include <foxglove/foxglove.hpp>
 #include <foxglove/context.hpp>
 #include <foxglove/error.hpp>
+#include <foxglove/foxglove.hpp>
 #include <foxglove/mcap.hpp>
 #include <foxglove/server.hpp>
+#include <iostream>
+#include <memory>
 #include <nlohmann/json.hpp>
+#include <opencv2/opencv.hpp>
+#include <signal.h>
+#include <sl/Camera.hpp>
+#include <thread>
+#include <vector>
 
 // Global variables
 std::vector<std::unique_ptr<sl::Camera>> zed_list;
@@ -20,13 +20,13 @@ std::vector<sl::Mat> left_list;
 std::vector<sl::Mat> depth_list;
 std::vector<uint64_t> timestamp_list;
 std::vector<std::thread> thread_list;
-std::atomic<bool> stop_signal{false};
+std::atomic<bool> stop_signal {false};
 
 // Command line arguments
 struct Args {
     std::string mcap_file = "output.mcap";
     bool enable_ws = false;
-    
+
     void parse(int argc, char* argv[]) {
         for (int i = 1; i < argc; i++) {
             std::string arg = argv[i];
@@ -36,7 +36,8 @@ struct Args {
                 enable_ws = true;
             } else if (arg == "--help" || arg == "-h") {
                 std::cout << "Usage: " << argv[0] << " [options]\n";
-                std::cout << "  --mcap <file>  Output MCAP file name (default: output.mcap)\n";
+                std::cout << "  --mcap <file>  Output MCAP file name (default: "
+                             "output.mcap)\n";
                 std::cout << "  --ws           Enable WebSocket server\n";
                 std::cout << "  --help, -h     Show this help message\n";
                 exit(0);
@@ -93,54 +94,54 @@ cv::Mat slMatToCvMat(const sl::Mat& input) {
         default:
             break;
     }
-    
+
     return cv::Mat(input.getHeight(), input.getWidth(), cv_type, input.getPtr<sl::uchar1>());
 }
 
 // Camera capture function for each thread
 void grab_run(int index) {
-    
+
     sl::RuntimeParameters runtime_params;
 
     auto left_channel = foxglove::schemas::CompressedImageChannel::create("image_" + std::to_string(index)).value();
     auto depth_channel = foxglove::schemas::CompressedImageChannel::create("depth_" + std::to_string(index)).value();
-    
+
     while (!stop_signal) {
         sl::ERROR_CODE err = zed_list[index]->grab(runtime_params);
-        
+
         if (err == sl::ERROR_CODE::SUCCESS) {
             // Retrieve images
             zed_list[index]->retrieveImage(left_list[index], sl::VIEW::LEFT);
             zed_list[index]->retrieveImage(depth_list[index], sl::VIEW::DEPTH);
-            
+
             // Convert to OpenCV format
             cv::Mat left_cv = slMatToCvMat(left_list[index]);
             cv::Mat depth_cv = slMatToCvMat(depth_list[index]);
-            
+
             // Encode as JPEG
             auto left_jpeg = encodeJpeg(left_cv, 90);
             auto depth_jpeg = encodeJpeg(depth_cv, 90);
-            
+
             // Get timestamp
             timestamp_list[index] = zed_list[index]->getTimestamp(sl::TIME_REFERENCE::CURRENT).data_ns;
-            
+
             // Create compressed image data
             foxglove::schemas::CompressedImage left_msg;
             left_msg.data = left_jpeg;
             left_msg.format = "jpeg";
-            
+
             foxglove::schemas::CompressedImage depth_msg;
             depth_msg.data = depth_jpeg;
             depth_msg.format = "jpeg";
-            
+
             left_channel.log(left_msg);
             depth_channel.log(depth_msg);
         }
-        
+
         // Small delay to prevent excessive CPU usage
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    
+
     // Close camera
     zed_list[index]->close();
 }
@@ -148,122 +149,131 @@ void grab_run(int index) {
 int main(int argc, char* argv[]) {
     Args args;
     args.parse(argc, argv);
-    
+
     // Set up signal handler
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
-    
+
     // Set log level
     foxglove::setLogLevel(foxglove::LogLevel::Debug);
-    
+
     std::cout << "ZED to Foxglove Streaming Application\n";
     std::cout << "MCAP file: " << args.mcap_file << std::endl;
     std::cout << "WebSocket server: " << (args.enable_ws ? "enabled" : "disabled") << std::endl;
-    
+
     // Initialize Foxglove WebSocket server
-    
+
     foxglove::WebSocketServerOptions options = {};
     options.name = "zed-foxglove-server";
     options.host = "127.0.0.1";
     options.port = 8765;
     options.capabilities = foxglove::WebSocketServerCapabilities::ClientPublish;
     options.supported_encodings = {"json"};
-    
-    auto serverResult = foxglove::WebSocketServer::create(std::move(options));
-    if (!serverResult.has_value()) {
-        std::cerr << "Failed to create server: " << foxglove::strerror(serverResult.error()) << std::endl;
-        return 1;
+
+    std::shared_ptr<foxglove::WebSocketServer> server = nullptr;
+    if (args.enable_ws) {
+
+        auto serverResult = foxglove::WebSocketServer::create(std::move(options));
+        if (!serverResult.has_value()) {
+            std::cerr << "Failed to create server: " << foxglove::strerror(serverResult.error()) << std::endl;
+            return 1;
+        }
+        server = std::make_shared<foxglove::WebSocketServer>(std::move(serverResult.value()));
+        if (!server) {
+            std::cerr << "Failed to create WebSocket server instance." << std::endl;
+            return 1;
+        }
+        std::cout << "WebSocket server started on port " << options.port << std::endl;
     }
-    auto server = std::move(serverResult.value());
-    std::cout << "WebSocket server started on port " << options.port << std::endl;
-    
+
     // Initialize MCAP writer
     std::shared_ptr<foxglove::McapWriter> mcap_writer = nullptr;
     if (!args.mcap_file.empty()) {
-        // foxglove::McapWriterOptions mcap_options;
-        // mcap_options.path = args.mcap_file;
-        
-        // auto writerResult = foxglove::McapWriter::create(mcap_options);
-        // if (!writerResult.has_value()) {
-        //     std::cerr << "Failed to create MCAP writer: " << foxglove::strerror(writerResult.error()) << std::endl;
-        //     return 1;
-        // }
-        // mcap_writer = std::move(writerResult.value());
-        // std::cout << "MCAP writer initialized: " << args.mcap_file << std::endl;
+        foxglove::McapWriterOptions mcap_options;
+        mcap_options.path = args.mcap_file;
+
+        auto writerResult = foxglove::McapWriter::create(mcap_options);
+        if (!writerResult.has_value()) {
+            std::cerr << "Failed to create MCAP writer: " << foxglove::strerror(writerResult.error()) << std::endl;
+            return 1;
+        }
+        mcap_writer = std::make_shared<foxglove::McapWriter>(std::move(writerResult.value()));
+        std::cout << "MCAP writer initialized: " << args.mcap_file << std::endl;
     }
-    
+
     // Initialize ZED SDK
     std::cout << "Initializing ZED cameras..." << std::endl;
-    
+
     sl::InitParameters init_params;
     init_params.camera_resolution = sl::RESOLUTION::AUTO;
     init_params.camera_fps = 30;
-    
+
     // List and open cameras
     std::vector<sl::DeviceProperties> cameras = sl::Camera::getDeviceList();
     std::cout << "Found " << cameras.size() << " ZED camera(s)" << std::endl;
-    
+
     for (size_t i = 0; i < cameras.size(); ++i) {
         init_params.input.setFromSerialNumber(cameras[i].serial_number);
-        
+
         std::cout << "Opening ZED " << cameras[i].serial_number << std::endl;
-        
+
         auto zed = std::make_unique<sl::Camera>();
         left_list.emplace_back();
         depth_list.emplace_back();
         timestamp_list.push_back(0);
-        
+
         sl::ERROR_CODE status = zed->open(init_params);
         if (status != sl::ERROR_CODE::SUCCESS) {
-            std::cerr << "Failed to open camera " << cameras[i].serial_number 
-                      << ": " << sl::toString(status) << std::endl;
+            std::cerr << "Failed to open camera " << cameras[i].serial_number << ": " << sl::toString(status) << std::endl;
             continue;
         }
-        
+
         zed_list.push_back(std::move(zed));
     }
-    
+
     if (zed_list.empty()) {
         std::cerr << "No cameras opened successfully. Exiting." << std::endl;
         return 1;
     }
-    
+
     // Start camera threads
     std::cout << "Starting camera capture threads..." << std::endl;
     for (size_t i = 0; i < zed_list.size(); ++i) {
         thread_list.emplace_back(grab_run, i);
     }
-    
+
     std::cout << "Running... Press Ctrl+C to stop." << std::endl;
-    
+
     // Main loop
     try {
         while (!stop_signal) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            
         }
     } catch (const std::exception& e) {
         std::cerr << "Exception in main loop: " << e.what() << std::endl;
     }
-    
+
     // Cleanup
     std::cout << "Shutting down..." << std::endl;
     stop_signal = true;
-    
+
     // Wait for all threads to finish
     for (auto& thread : thread_list) {
         if (thread.joinable()) {
             thread.join();
         }
     }
-    
+
+    // Stop WebSocket server
+    if (server) {
+        server->stop();
+    }
+
     // Close MCAP writer
     if (mcap_writer) {
         mcap_writer->close();
     }
-    
-    server.stop();
-    
+
     std::cout << "Shutdown complete." << std::endl;
     return 0;
 }
