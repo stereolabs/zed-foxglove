@@ -1,18 +1,22 @@
 #include <atomic>
 #include <chrono>
-#include <foxglove/context.hpp>
-#include <foxglove/error.hpp>
-#include <foxglove/foxglove.hpp>
-#include <foxglove/mcap.hpp>
-#include <foxglove/server.hpp>
+#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <signal.h>
-#include <sl/Camera.hpp>
 #include <thread>
 #include <vector>
+
+#include <sl/Camera.hpp>
+
+#include <foxglove/context.hpp>
+#include <foxglove/error.hpp>
+#include <foxglove/foxglove.hpp>
+#include <foxglove/mcap.hpp>
+#include <foxglove/schemas.hpp>
+#include <foxglove/server.hpp>
 
 // Global variables
 std::vector<std::unique_ptr<sl::Camera>> zed_list;
@@ -24,7 +28,7 @@ std::atomic<bool> stop_signal {false};
 
 // Command line arguments
 struct Args {
-    std::string mcap_file = "output.mcap";
+    std::string mcap_file = "";
     bool enable_ws = false;
 
     void parse(int argc, char* argv[]) {
@@ -98,6 +102,62 @@ cv::Mat slMatToCvMat(const sl::Mat& input) {
     return cv::Mat(input.getHeight(), input.getWidth(), cv_type, input.getPtr<sl::uchar1>());
 }
 
+foxglove::schemas::PointCloud makePointCloud(int zed_id, const sl::Mat& point_cloud) {
+    const std::byte* byte_ptr = reinterpret_cast<const std::byte*>(point_cloud.getPtr<sl::uchar1>());
+    size_t data_size = point_cloud.getWidth() * point_cloud.getHeight() * point_cloud.getPixelBytes();
+
+    // Create vector from the data
+    std::vector<std::byte> point_cloud_data(byte_ptr, byte_ptr + data_size);
+
+    foxglove::schemas::PointCloud point_cloud_msg;
+    point_cloud_msg.data = point_cloud_data;
+    point_cloud_msg.frame_id = "zed_" + std::to_string(zed_id);
+    point_cloud_msg.pose = foxglove::schemas::Pose {
+        .position = foxglove::schemas::Vector3 {0.0, 0.0, 0.0},
+        .orientation = foxglove::schemas::Quaternion {0.0, 0.0, 0.0, 1.0}  // Identity quaternion
+    };
+    point_cloud_msg.point_stride = 16;  // 4 floats (x, y, z) + 4 bytes (rgba)
+    point_cloud_msg.fields = {
+        foxglove::schemas::PackedElementField {
+                                               .name = "x",
+                                               .offset = 0,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::FLOAT32,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "y",
+                                               .offset = 4,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::FLOAT32,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "z",
+                                               .offset = 8,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::FLOAT32,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "red",
+                                               .offset = 12,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::UINT8,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "green",
+                                               .offset = 13,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::UINT8,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "blue",
+                                               .offset = 14,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::UINT8,
+                                               },
+        foxglove::schemas::PackedElementField {
+                                               .name = "alpha",
+                                               .offset = 15,
+                                               .type = foxglove::schemas::PackedElementField::NumericType::UINT8,
+                                               },
+    };
+
+    return point_cloud_msg;
+}
+
 // Camera capture function for each thread
 void grab_run(int index) {
 
@@ -105,6 +165,7 @@ void grab_run(int index) {
 
     auto left_channel = foxglove::schemas::CompressedImageChannel::create("image_" + std::to_string(index)).value();
     auto depth_channel = foxglove::schemas::CompressedImageChannel::create("depth_" + std::to_string(index)).value();
+    auto point_cloud_channel = foxglove::schemas::PointCloudChannel::create("point_cloud_" + std::to_string(index)).value();
 
     while (!stop_signal) {
         sl::ERROR_CODE err = zed_list[index]->grab(runtime_params);
@@ -136,10 +197,17 @@ void grab_run(int index) {
 
             left_channel.log(left_msg);
             depth_channel.log(depth_msg);
+
+            // Retrieve point cloud
+            sl::Mat point_cloud;
+            zed_list[index]->retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
+
+            auto point_cloud_msg = makePointCloud(index, point_cloud);
+            point_cloud_channel.log(point_cloud_msg);
         }
 
         // Small delay to prevent excessive CPU usage
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     // Close camera
@@ -207,6 +275,8 @@ int main(int argc, char* argv[]) {
     sl::InitParameters init_params;
     init_params.camera_resolution = sl::RESOLUTION::AUTO;
     init_params.camera_fps = 30;
+    init_params.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP;
+    init_params.coordinate_units = sl::UNIT::METER;
 
     // List and open cameras
     std::vector<sl::DeviceProperties> cameras = sl::Camera::getDeviceList();

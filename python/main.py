@@ -180,6 +180,7 @@ def main() -> None:
         global stop_signal
         stop_signal = True
         time.sleep(0.5)
+    finally:
         if server is not None:
             server.stop()
         if mcap is not None:
